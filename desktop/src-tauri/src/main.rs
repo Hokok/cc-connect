@@ -50,9 +50,10 @@ enabled = true
 "#;
 
 /// Write the shell's default config when none exists yet.
-fn write_default_config_if_missing(config_path: &std::path::Path) {
+/// Returns true when a fresh default was created (used to trigger first-run setup).
+fn write_default_config_if_missing(config_path: &std::path::Path) -> bool {
     if config_path.exists() {
-        return;
+        return false;
     }
     if let Some(dir) = config_path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -61,6 +62,15 @@ fn write_default_config_if_missing(config_path: &std::path::Path) {
         "placeholder-connect-token-randomized-生成时替换",
         &random_token(),
     ));
+    true
+}
+
+/// True while the config still points at the shell-initial acp stub, i.e. the
+/// user has not picked a real agent CLI yet.
+fn agent_is_stub(config_path: &std::path::Path) -> bool {
+    std::fs::read_to_string(config_path)
+        .map(|c| c.contains("cmd = \"/usr/bin/true\""))
+        .unwrap_or(true)
 }
 
 /// Generate a random 24-hex-char token without pulling a rand dependency:
@@ -266,6 +276,22 @@ fn restart_engine(app: &AppHandle, config_path: &std::path::Path, log_path: &std
     Ok(())
 }
 
+/// Open (or navigate) the main window at the engine's web UI.
+fn ensure_main_window(app: &AppHandle, config_path: &std::path::Path) -> Result<(), String> {
+    let url = engine_login_url(config_path);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.navigate(url);
+        let _ = win.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+        .title("CC Connect")
+        .inner_size(1280.0, 860.0)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Open (or focus) the config editor window.
 fn open_editor(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("editor") {
@@ -338,7 +364,10 @@ fn set_agent(kind: String, app: AppHandle, paths: State<ConfigPaths>) -> Result<
         .map_err(|e| format!("TOML 解析失败: {e}"))?;
     switch_agent_doc(&mut doc, agent_type, cmd)?;
     std::fs::write(&paths.config, doc.to_string()).map_err(|e| format!("write: {e}"))?;
-    restart_engine(&app, &paths.config, &paths.log)
+    restart_engine(&app, &paths.config, &paths.log)?;
+    // The picker is the first-run entry point: show the main UI once a real
+    // agent is applied so the user lands in the actual app.
+    ensure_main_window(&app, &paths.config)
 }
 
 /// Rewire the first [[projects]] agent tables to {type, options.cmd}, preserving
@@ -356,7 +385,8 @@ fn switch_agent_doc(doc: &mut DocumentMut, agent_type: &str, cmd: &str) -> Resul
 
 #[tauri::command]
 fn restart_service(app: AppHandle, paths: State<ConfigPaths>) -> Result<(), String> {
-    restart_engine(&app, &paths.config, &paths.log)
+    restart_engine(&app, &paths.config, &paths.log)?;
+    ensure_main_window(&app, &paths.config)
 }
 
 /// Fetch (and clear) the stored startup error, if any.
@@ -398,16 +428,25 @@ fn main() {
                 config: config_path.clone(),
                 log: log_path.clone(),
             });
-            write_default_config_if_missing(&config_path);
+            let first_run = write_default_config_if_missing(&config_path) || agent_is_stub(&config_path);
 
-            // Menu: config editor + quit.
+            // Menu: main UI, config editor, quit.
+            let main_item = MenuItemBuilder::with_id("main-window", "Open Main UI / 打开主界面").build(app)?;
             let config_item =
                 MenuItemBuilder::with_id("config-editor", "Config Editor / 配置编辑").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "Quit / 退出").build(app)?;
-            let menu = MenuBuilder::new(app).item(&config_item).item(&quit_item).build()?;
+            let menu = MenuBuilder::new(app)
+                .item(&main_item)
+                .item(&config_item)
+                .item(&quit_item)
+                .build()?;
             app.set_menu(menu)?;
             let handle = app.handle().clone();
             app.on_menu_event(move |app, event| match event.id().as_ref() {
+                "main-window" => {
+                    let paths = app.state::<ConfigPaths>();
+                    let _ = ensure_main_window(app, &paths.config);
+                }
                 "config-editor" => open_editor(app),
                 "quit" => app.exit(0),
                 _ => {}
@@ -417,11 +456,16 @@ fn main() {
             // at the login URL. On failure open the editor pre-filled with an error.
             match restart_engine(&handle, &config_path, &log_path) {
                 Ok(()) if app.get_webview_window("main").is_none() => {
-                    let url = engine_login_url(&config_path);
-                    WebviewWindowBuilder::new(&handle, "main", WebviewUrl::External(url))
-                        .title("CC Connect")
-                        .inner_size(1280.0, 860.0)
-                        .build()?;
+                    if first_run {
+                        // No real agent CLI picked yet: land on the picker instead.
+                        open_editor(&handle);
+                    } else {
+                        let url = engine_login_url(&config_path);
+                        WebviewWindowBuilder::new(&handle, "main", WebviewUrl::External(url))
+                            .title("CC Connect")
+                            .inner_size(1280.0, 860.0)
+                            .build()?;
+                    }
                 }
                 Ok(()) => {}
                 Err(e) => {
