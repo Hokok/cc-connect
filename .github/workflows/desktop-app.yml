@@ -80,10 +80,15 @@ jobs:
           cd desktop/src-tauri/target/release/bundle/macos
           zip -ry "CC-Connect-macOS.zip" "CC Connect.app"
 
+      # Artifact names cannot contain '/', which branch names like
+      # feat/desktop-shell-comate do — sanitize the ref name.
+      - name: Compute artifact name
+        run: echo "ARTIFACT_NAME=CC-Connect-macOS-$(printf %s "${{ github.ref_name }}" | tr '/' '-')" >> "$GITHUB_ENV"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CC-Connect-macOS-${{ github.ref_name }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/release/bundle/macos/CC-Connect-macOS.zip
