@@ -94,6 +94,28 @@ class ApiClient {
     this.noteConfigMtime(res);
     return res.text();
   }
+
+  /**
+   * PUT a raw text body (e.g. config.toml content to /config). Unlike request(),
+   * the body is sent verbatim with text/plain — the engine expects file content,
+   * not JSON. Mtime headers flow the same way so stale editors get a 409.
+   */
+  async putRaw(path: string, text: string): Promise<any> {
+    const headers: Record<string, string> = { 'Content-Type': 'text/plain; charset=utf-8' };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    if (this.configMtime) headers[HEADER_CONFIG_LOADED_MTIME] = this.configMtime;
+    const res = await fetch(`${API_BASE}${path}`, { method: 'PUT', headers, body: text });
+    if (res.status === 401 && this.onUnauthorized) {
+      this.onUnauthorized();
+      throw new ApiError('Unauthorized', 401);
+    }
+    this.noteConfigMtime(res);
+    const json = await res.json();
+    if (!json.ok) {
+      throw new ApiError(json.error || 'Unknown error', res.status);
+    }
+    return json.data as any;
+  }
 }
 
 export class ApiError extends Error {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -2176,6 +2177,105 @@ func TestMgmt_ProjectPatch_RejectsMissingWorkDirBeforeMutation(t *testing.T) {
 	}
 }
 
+// mgmtPutConfig sends a raw-text PUT to the config endpoint and returns the
+// response plus the X-Config-Mtime header (for chaining saves).
+func mgmtPutConfig(t *testing.T, url, token, body, loadedMtime string) (*http.Response, mgmtResponse) {
+	t.Helper()
+	req, _ := http.NewRequest("PUT", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if loadedMtime != "" {
+		req.Header.Set(HeaderConfigLoadedMtime, loadedMtime)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var r mgmtResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode PUT /config response: %v", err)
+	}
+	return resp, r
+}
+
+func TestMgmt_ConfigPut_SavesAndEchoesMtime(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	mgmt.SetConfigFilePath(path)
+	mgmt.SetSaveConfig(func(content string) error {
+		return os.WriteFile(path, []byte(content), 0o600)
+	})
+
+	resp, r := mgmtPutConfig(t, ts.URL+"/api/v1/config", "tok", "language = \"en\"\n", "")
+	if !r.OK {
+		t.Fatalf("PUT /config failed: %s", r.Error)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if resp.Header.Get(HeaderConfigMtime) == "" {
+		t.Fatal("X-Config-Mtime header missing on successful save")
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "language = \"en\"\n" {
+		t.Fatalf("saved content = %q, want original text", data)
+	}
+}
+
+func TestMgmt_ConfigPut_InvalidContentRejected(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	mgmt.SetConfigFilePath(path)
+	mgmt.SetSaveConfig(func(content string) error {
+		return fmt.Errorf("invalid TOML: expected '=' after key")
+	})
+
+	_, r := mgmtPutConfig(t, ts.URL+"/api/v1/config", "tok", "not [ valid", "")
+	if r.OK {
+		t.Fatal("expected invalid content to be rejected")
+	}
+	if !strings.Contains(r.Error, "invalid TOML") {
+		t.Fatalf("error = %q, want invalid TOML", r.Error)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("config file must not be created for rejected content")
+	}
+}
+
+func TestMgmt_ConfigPut_StaleMtimeConflicts(t *testing.T) {
+	mgmt, ts, _ := testManagementServer(t, "tok")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	mgmt.SetConfigFilePath(path)
+	if err := os.WriteFile(path, []byte("language = \"en\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saveCalled := false
+	mgmt.SetSaveConfig(func(content string) error {
+		saveCalled = true
+		return nil
+	})
+
+	// A stale loaded-mtime (older than the file's current one) must 409.
+	_, r := mgmtPutConfig(t, ts.URL+"/api/v1/config", "tok", "language = \"zh\"\n", "2000-01-01T00:00:00Z")
+	if r.OK {
+		t.Fatal("expected stale mtime save to be rejected")
+	}
+	if saveCalled {
+		t.Fatal("saveConfig must not run for a stale save")
+	}
+}
+
+func TestMgmt_ConfigPut_NotConfigured(t *testing.T) {
+	_, ts, _ := testManagementServer(t, "tok")
+	_, r := mgmtPutConfig(t, ts.URL+"/api/v1/config", "tok", "language = \"en\"\n", "")
+	if r.OK {
+		t.Fatal("expected PUT /config without save hook to fail")
+	}
+}
+
 func TestMgmt_ProjectPatch_DisabledCommands(t *testing.T) {
 	_, ts, e := testManagementServer(t, "tok")
 	r := mgmtPatch(t, ts.URL+"/api/v1/projects/test-project", "tok", map[string]any{
@@ -2190,7 +2290,6 @@ func TestMgmt_ProjectPatch_DisabledCommands(t *testing.T) {
 		t.Fatalf("disabled_commands = %v, want [delete new]", got)
 	}
 }
-
 func TestMgmt_ProjectPatch_AdminFrom(t *testing.T) {
 	_, ts, e := testManagementServer(t, "tok")
 	r := mgmtPatch(t, ts.URL+"/api/v1/projects/test-project", "tok", map[string]any{

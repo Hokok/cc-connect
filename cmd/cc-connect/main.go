@@ -1192,6 +1192,7 @@ func main() {
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
+		mgmtSrv.SetSaveConfig(config.SaveRawConfig)
 		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}

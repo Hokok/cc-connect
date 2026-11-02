@@ -185,7 +185,13 @@
     "reloadConfirm": "Reload configuration from disk?",
     "level": "Log level",
     "limit": "Line limit",
-    "rawConfig": "Raw Config"
+    "rawConfig": "Raw Config",
+    "saveConfigConfirm": "Save config.toml? The engine will hot-reload it.",
+    "configSaved": "config.toml saved, reloading…",
+    "configConflict": "config.toml was modified elsewhere. Click Refresh to load the latest version.",
+    "unsavedChanges": "unsaved",
+    "discardChanges": "Discard",
+    "rawConfigHint": "Edit config.toml directly. TOML syntax is validated before saving; most changes apply after an automatic reload."
   },
   "logs": {
     "title": "Logs",

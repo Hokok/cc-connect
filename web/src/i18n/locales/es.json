@@ -185,7 +185,13 @@
     "reloadConfirm": "¿Recargar la configuración desde el disco?",
     "level": "Nivel de registro",
     "limit": "Límite de líneas",
-    "rawConfig": "Config. sin procesar"
+    "rawConfig": "Config. sin procesar",
+    "saveConfigConfirm": "¿Guardar config.toml? El motor lo recargará en caliente.",
+    "configSaved": "config.toml guardado, recargando…",
+    "configConflict": "config.toml fue modificado en otro lugar. Haga clic en Actualizar para cargar la última versión.",
+    "unsavedChanges": "sin guardar",
+    "discardChanges": "Descartar",
+    "rawConfigHint": "Edite config.toml directamente. La sintaxis TOML se valida antes de guardar; la mayoría de los cambios se aplican tras una recarga automática."
   },
   "logs": {
     "title": "Registros",

@@ -185,7 +185,13 @@
     "reloadConfirm": "디스크에서 설정을 다시 로드하시겠습니까?",
     "level": "로그 레벨",
     "limit": "줄 제한",
-    "rawConfig": "원본 설정"
+    "rawConfig": "원본 설정",
+    "saveConfigConfirm": "config.toml을 저장할까요? 저장 후 엔진이 자동으로 리로드합니다.",
+    "configSaved": "config.toml 저장됨, 리로드 중…",
+    "configConflict": "config.toml이 다른 곳에서 수정되었습니다. 새로고침을 눌러 최신 버전을 불러오세요.",
+    "unsavedChanges": "저장 안 됨",
+    "discardChanges": "취소",
+    "rawConfigHint": "config.toml을 직접 편집합니다. 저장 전 TOML 문법을 검증하며, 대부분의 변경 사항은 자동 리로드 후 적용됩니다."
   },
   "logs": {
     "title": "로그",

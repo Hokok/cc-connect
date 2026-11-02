@@ -185,7 +185,13 @@
     "reloadConfirm": "从磁盘重新加载配置？",
     "level": "日志级别",
     "limit": "行数限制",
-    "rawConfig": "原始配置"
+    "rawConfig": "原始配置",
+    "saveConfigConfirm": "保存 config.toml？保存后引擎会自动热重载。",
+    "configSaved": "config.toml 已保存，正在重载…",
+    "configConflict": "config.toml 已在其他地方被修改。请点击「刷新」加载最新版本。",
+    "unsavedChanges": "未保存",
+    "discardChanges": "放弃更改",
+    "rawConfigHint": "直接编辑 config.toml。保存前会校验 TOML 语法；大部分更改会在自动重载后生效。"
   },
   "logs": {
     "title": "日志",

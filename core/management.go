@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -64,6 +65,7 @@ type ManagementServer struct {
 	configFilePath       string
 	getGlobalSettings    func() map[string]any
 	saveGlobalSettings   func(map[string]any) error
+	saveConfig           func(content string) error
 
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
@@ -135,6 +137,13 @@ func (m *ManagementServer) SetGetGlobalSettings(fn func() map[string]any) {
 
 func (m *ManagementServer) SetSaveGlobalSettings(fn func(map[string]any) error) {
 	m.saveGlobalSettings = fn
+}
+
+// SetSaveConfig installs the callback that validates and persists a complete
+// config.toml provided as raw text (PUT /config). The implementation lives in
+// the config package because core cannot import it.
+func (m *ManagementServer) SetSaveConfig(fn func(content string) error) {
+	m.saveConfig = fn
 }
 
 // GlobalProviderInfo is the wire type for global provider CRUD in the management API.
@@ -520,8 +529,12 @@ func (m *ManagementServer) handleReload(w http.ResponseWriter, r *http.Request) 
 }
 
 func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		m.handleConfigPut(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
-		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
+		mgmtError(w, http.StatusMethodNotAllowed, "GET or PUT only")
 		return
 	}
 
@@ -540,6 +553,35 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
+
+// handleConfigPut persists a complete config.toml provided as raw text. The
+// body is the file content (text/plain), not JSON. Saves are gated on the
+// client's Config-Loaded-Mtime so a stale web editor cannot clobber changes
+// made through the desktop shell or disk. TOML validation lives behind the
+// SetSaveConfig callback.
+func (m *ManagementServer) handleConfigPut(w http.ResponseWriter, r *http.Request) {
+	if m.saveConfig == nil {
+		mgmtError(w, http.StatusNotImplemented, "config save not configured")
+		return
+	}
+	if !m.gateConfigFreshness(w, r) {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxConfigPutBytes))
+	if err != nil {
+		mgmtError(w, http.StatusBadRequest, "read body: "+err.Error())
+		return
+	}
+	if err := m.saveConfig(string(body)); err != nil {
+		mgmtError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	m.setConfigMtimeHeader(w)
+	mgmtJSON(w, http.StatusOK, map[string]any{"message": "config saved"})
+}
+
+// maxConfigPutBytes bounds the raw config upload (config files are a few KB).
+const maxConfigPutBytes = 4 << 20
 
 // ── Config freshness (mtime) gating ──────────────────────────
 //

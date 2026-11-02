@@ -3797,7 +3797,12 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 }
 
 func writeRawConfig(content string) error {
-	content = formatTOML(content)
+	return atomicWriteConfig(formatTOML(content))
+}
+
+// atomicWriteConfig writes content to ConfigPath via a temp file + rename so
+// a crash never leaves a truncated config behind.
+func atomicWriteConfig(content string) error {
 	dir := filepath.Dir(ConfigPath)
 	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
@@ -3819,6 +3824,20 @@ func writeRawConfig(content string) error {
 		return err
 	}
 	return os.Rename(tmpPath, ConfigPath)
+}
+
+// SaveRawConfig validates a complete config.toml provided as text and
+// persists it verbatim (comments and ordering preserved — no reformatting).
+// Used by the web UI's raw config editor via PUT /api/v1/config.
+func SaveRawConfig(content string) error {
+	if strings.TrimSpace(content) == "" {
+		return fmt.Errorf("config content is empty")
+	}
+	cfg := &Config{}
+	if err := toml.Unmarshal([]byte(content), cfg); err != nil {
+		return fmt.Errorf("invalid TOML: %w", err)
+	}
+	return atomicWriteConfig(content)
 }
 
 // FormatConfigFile reads the config file at the given path, formats it, and

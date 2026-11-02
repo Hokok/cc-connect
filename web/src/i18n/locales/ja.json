@@ -185,7 +185,13 @@
     "reloadConfirm": "ディスクから設定を再読み込みしますか？",
     "level": "ログレベル",
     "limit": "行数の上限",
-    "rawConfig": "生の設定"
+    "rawConfig": "生の設定",
+    "saveConfigConfirm": "config.toml を保存しますか？保存後、エンジンが自動でリロードします。",
+    "configSaved": "config.toml を保存しました。リロード中…",
+    "configConflict": "config.toml が他で変更されました。更新をクリックして最新版を読み込んでください。",
+    "unsavedChanges": "未保存",
+    "discardChanges": "破棄",
+    "rawConfigHint": "config.toml を直接編集します。保存前に TOML 構文を検証し、ほとんどの変更は自動リロード後に反映されます。"
   },
   "logs": {
     "title": "ログ",

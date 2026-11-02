@@ -185,7 +185,13 @@
     "reloadConfirm": "從磁碟重新載入設定？",
     "level": "記錄層級",
     "limit": "筆數上限",
-    "rawConfig": "原始設定"
+    "rawConfig": "原始設定",
+    "saveConfigConfirm": "儲存 config.toml？儲存後引擎會自動熱載入。",
+    "configSaved": "config.toml 已儲存，正在重新載入…",
+    "configConflict": "config.toml 已在其他地方被修改。請點「重新整理」載入最新版本。",
+    "unsavedChanges": "未儲存",
+    "discardChanges": "捨棄",
+    "rawConfigHint": "直接編輯 config.toml。儲存前會驗證 TOML 語法；大部分變更會在自動重新載入後生效。"
   },
   "logs": {
     "title": "日誌",

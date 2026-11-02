@@ -2979,6 +2979,42 @@ func TestSaveProjectSettings_AgentCmdSetAndClear(t *testing.T) {
 	}
 }
 
+func TestSaveRawConfig(t *testing.T) {
+	configPath := writeConfigFixture(t, feishuConfigFixture)
+	patchConfigPath(t, configPath)
+
+	// Valid TOML with a comment: persisted verbatim (comments preserved).
+	content := "# my comment\nlanguage = \"zh\"\n"
+	if err := SaveRawConfig(content); err != nil {
+		t.Fatalf("SaveRawConfig (valid): %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Fatalf("saved content = %q, want verbatim %q", data, content)
+	}
+	cfg := readConfigFixture(t, configPath)
+	if cfg.Language != "zh" {
+		t.Fatalf("language = %q, want zh", cfg.Language)
+	}
+
+	// Invalid TOML: rejected, file untouched.
+	if err := SaveRawConfig("not [ valid"); err == nil {
+		t.Fatal("expected invalid TOML to be rejected")
+	}
+	data, _ = os.ReadFile(configPath)
+	if string(data) != content {
+		t.Fatalf("file changed after rejected save: %q", data)
+	}
+
+	// Empty content: rejected.
+	if err := SaveRawConfig("   \n"); err == nil {
+		t.Fatal("expected empty content to be rejected")
+	}
+}
+
 func TestSaveProjectSettings_WorkspaceModeRequiresBaseDir(t *testing.T) {
 	configPath := writeConfigFixture(t, feishuConfigFixture)
 	patchConfigPath(t, configPath)
