@@ -10,6 +10,7 @@ import ChatView from '@/pages/Chat/ChatView';
 import CronList from '@/pages/Cron/CronList';
 import SystemConfig from '@/pages/System/Config';
 import Logs from '@/pages/System/Logs';
+import Onboarding from '@/pages/Onboarding';
 import ProviderList from '@/pages/Providers/ProviderList';
 import SkillList from '@/pages/Skills/SkillList';
 
@@ -25,6 +26,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="projects" element={<ProjectList />} />

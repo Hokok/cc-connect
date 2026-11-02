@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import {
-  Activity, Server, Layers, MessageSquare, Clock, ChevronRight,
+  Activity, Server, Layers, MessageSquare, Clock, ChevronRight, Sparkles,
 } from 'lucide-react';
-import { StatCard, Badge, EmptyState } from '@/components/ui';
+import { StatCard, Badge, EmptyState, Button } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
 import { listProjects, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
@@ -64,6 +64,13 @@ export default function Dashboard() {
     return <div className="text-center py-16 text-red-500">{error}</div>;
   }
 
+  // First-run: no projects yet and the user has not been through (or
+  // skipped) the onboarding wizard in this session — guide them there.
+  const onboarded = (() => { try { return !!sessionStorage.getItem('cc_onboarded'); } catch { return false; } })();
+  if (projects.length === 0 && !onboarded) {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   return (
     <div className="space-y-8 animate-fade-in ">
       {/* Stats */}
@@ -86,8 +93,13 @@ export default function Dashboard() {
           </Link>
         </div>
         {projects.length === 0 ? (
-          <div className="rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-8">
+          <div className="rounded-xl border border-gray-200/80 dark:border-white/[0.06] bg-white dark:bg-white/[0.02] p-8 space-y-4">
             <EmptyState message={t('projects.noProjects')} icon={Layers} />
+            <div className="flex justify-center">
+              <Link to="/onboarding">
+                <Button size="sm"><Sparkles size={14} /> {t('onboarding.cta')}</Button>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
