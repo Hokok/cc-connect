@@ -37,7 +37,7 @@ work_dir = "~"
 type = "acp"
 [projects.agent.options]
 # placeholder: please change to the real agent CLI in the web UI, e.g. /opt/homebrew/bin/claude
-cmd = "/usr/bin/true"
+cmd = "__STUB_CMD__"
 
 [[projects.platforms]]
 type = "cloud_web"
@@ -50,6 +50,14 @@ ws_url = "ws://127.0.0.1:9/ws"
 enabled = true
 "#;
 
+/// Stub cmd written into the first-run default config so the placeholder acp
+/// agent has a runnable, immediately-exiting binary. Parsed with
+/// strings.Fields engine-side, so the Windows variant can carry arguments.
+#[cfg(windows)]
+const SHELL_STUB_CMD: &str = "cmd /c exit";
+#[cfg(not(windows))]
+const SHELL_STUB_CMD: &str = "/usr/bin/true";
+
 /// Write the shell's default config when none exists yet.
 /// Returns true when a fresh default was created (used to trigger first-run setup).
 fn write_default_config_if_missing(config_path: &std::path::Path) -> bool {
@@ -59,18 +67,24 @@ fn write_default_config_if_missing(config_path: &std::path::Path) -> bool {
     if let Some(dir) = config_path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(config_path, DEFAULT_CONFIG_TOML.replace(
-        "placeholder-connect-token-randomized-生成时替换",
-        &random_token(),
-    ));
+    let _ = std::fs::write(
+        config_path,
+        DEFAULT_CONFIG_TOML
+            .replace("__STUB_CMD__", SHELL_STUB_CMD)
+            .replace(
+                "placeholder-connect-token-randomized-生成时替换",
+                &random_token(),
+            ),
+    );
     true
 }
 
 /// True while the config still points at the shell-initial acp stub, i.e. the
 /// user has not picked a real agent CLI yet.
 fn agent_is_stub(config_path: &std::path::Path) -> bool {
+    let stub = format!("cmd = \"{}\"", SHELL_STUB_CMD);
     std::fs::read_to_string(config_path)
-        .map(|c| c.contains("cmd = \"/usr/bin/true\""))
+        .map(|c| c.contains(&stub))
         .unwrap_or(true)
 }
 
@@ -110,11 +124,38 @@ static ENGINE_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::
 /// atexit reaper: every normal exit path (window close, menu quit, teardown)
 /// must not leave the engine running on 127.0.0.1. SIGKILL of the shell is
 /// covered next launch via the engine's per-config --force lock.
+#[cfg(unix)]
 extern "C" fn reap_engine_at_exit() {
     let pid = ENGINE_PID.load(std::sync::atomic::Ordering::Relaxed);
     if pid != 0 {
         unsafe { libc::kill(pid as i32, libc::SIGKILL) };
     }
+}
+
+/// Windows twin: taskkill /T also reaps the engine's children;
+/// CREATE_NO_WINDOW keeps a console from flashing during teardown.
+#[cfg(windows)]
+extern "C" fn reap_engine_at_exit() {
+    let pid = ENGINE_PID.load(std::sync::atomic::Ordering::Relaxed);
+    if pid != 0 {
+        let _ = no_window(Command::new("taskkill"))
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .output();
+    }
+}
+
+/// On Windows, spawning a console process (the engine sidecar, `where`,
+/// `taskkill`) from a GUI app allocates and flashes a console window;
+/// CREATE_NO_WINDOW suppresses it. No-op elsewhere.
+#[cfg(windows)]
+fn no_window(mut cmd: Command) -> Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+    cmd
+}
+#[cfg(not(windows))]
+fn no_window(cmd: Command) -> Command {
+    cmd
 }
 
 /// Register the atexit reaper once at startup.
@@ -203,6 +244,7 @@ fn sidecar_path() -> PathBuf {
 /// sdkman) hook their PATH into `.zshrc`, which a non-interactive `zsh -lc`
 /// never reads, so their CLIs stay invisible. `.zshrc` may print noise, so
 /// callers consume only the final line.
+#[cfg(not(windows))]
 fn zsh_login_last_line(script: &str) -> Option<String> {
     let out = Command::new("/bin/zsh")
         .arg("-ilc")
@@ -220,9 +262,35 @@ fn zsh_login_last_line(script: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Windows twin: resolve a CLI via `where` (searches the current PATH).
+#[cfg(windows)]
+fn zsh_login_last_line(script: &str) -> Option<String> {
+    // The caller's script is POSIX shell syntax; on Windows only the
+    // "command -v -- NAME" form is used — map it to `where NAME`.
+    let name = script.split_whitespace().last()?;
+    let out = no_window(Command::new("where")).arg(name).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
+}
+
+/// GUI apps get a minimal PATH that misses homebrew/nvm agent CLIs. Rebuild it
+/// from a zsh login shell (macOS user rc) before spawning the engine so the
+/// engine (and the agent CLIs it manages) inherit a usable PATH. No-op on
+/// Windows, where the GUI PATH already contains system dirs.
+#[cfg(windows)]
+fn fix_path_from_login_shell() {}
+
 /// GUI apps get a minimal PATH that misses homebrew/nvm agent CLIs. Rebuild it
 /// from a zsh login shell (macOS user rc) before spawning the engine so the
 /// engine (and the agent CLIs it manages) inherit a usable PATH.
+#[cfg(not(windows))]
 fn fix_path_from_login_shell() {
     if let Some(p) = zsh_login_last_line("printf %s \"$PATH\"").filter(|p| p.contains('/')) {
         std::env::set_var("PATH", p);
@@ -249,7 +317,7 @@ fn start_engine(config_path: &std::path::Path, log_path: &std::path::Path) -> Re
         .open(log_path)
         .map_err(|e| format!("open engine log {}: {e}", log_path.display()))?;
     let err = log.try_clone().map_err(|e| format!("clone log fd: {e}"))?;
-    Command::new(&bin)
+    no_window(Command::new(&bin))
         .arg("--config")
         .arg(config_path)
         // Per-config lock: if a previous shell process was hard-killed and
@@ -427,6 +495,16 @@ fn take_startup_error(err: State<StartupError>) -> Option<String> {
     err.0.lock().expect("startup error lock").take()
 }
 
+/// True when a resolved CLI location looks like a filesystem path: absolute
+/// on unix, or the drive-letter/UNC output of `where` on Windows.
+fn looks_like_path(p: &str) -> bool {
+    if cfg!(windows) {
+        p.contains('\\') || p.contains('/')
+    } else {
+        p.starts_with('/')
+    }
+}
+
 /// Resolve a CLI name via the user's interactive login env (sees nvm/pyenv
 /// bins that plain `zsh -lc` misses).
 #[tauri::command]
@@ -435,8 +513,8 @@ fn check_cli(cmd: String) -> Result<String, String> {
         return Err("非法 CLI 名称".to_string());
     }
     zsh_login_last_line(&format!("command -v -- {}", cmd))
-        .filter(|p| p.starts_with('/'))
-        .ok_or_else(|| format!("未找到 {} CLI,请先安装(pnpm/global/homebrew)", cmd))
+        .filter(|p| looks_like_path(p))
+        .ok_or_else(|| format!("未找到 {} CLI,请先安装并加入 PATH", cmd))
 }
 
 /// Stop the engine, run its self-update (`cc-connect update` downloads and
@@ -448,7 +526,7 @@ fn check_cli(cmd: String) -> Result<String, String> {
 fn engine_update(app: AppHandle, paths: State<ConfigPaths>) -> Result<String, String> {
     let engine: State<Engine> = app.state();
     kill_engine(&engine);
-    let out = Command::new(sidecar_path())
+    let out = no_window(Command::new(sidecar_path()))
         .arg("update")
         .output()
         .map_err(|e| format!("无法运行更新命令: {e}"))?;
@@ -646,5 +724,31 @@ mod tests {
         assert!(out.contains("# placeholder"));
         // empty doc errors
         assert!(switch_agent_doc(&mut "x = 1".parse::<DocumentMut>().unwrap(), "a", "b").is_err());
+    }
+
+    #[test]
+    fn test_looks_like_path() {
+        if cfg!(windows) {
+            assert!(looks_like_path(r"C:\Users\x\nvm\claude.CMD"));
+        } else {
+            assert!(looks_like_path("/opt/homebrew/bin/claude"));
+        }
+        // bare command names and relative fragments are not resolved paths
+        assert!(!looks_like_path("claude"));
+        assert!(!looks_like_path(""));
+    }
+
+    // The first-run default config must carry the platform stub cmd and be
+    // recognized as stub by agent_is_stub, so the first-run picker appears.
+    #[test]
+    fn test_default_config_writes_platform_stub() {
+        let mut p = std::env::temp_dir();
+        p.push(format!("desktop-shell-stub-test-{}.toml", std::process::id()));
+        assert!(write_default_config_if_missing(&p));
+        assert!(!write_default_config_if_missing(&p), "second call is a no-op");
+        let content = std::fs::read_to_string(&p).unwrap();
+        assert!(content.contains(&format!("cmd = \"{SHELL_STUB_CMD}\"")));
+        assert!(agent_is_stub(&p));
+        std::fs::remove_file(&p).ok();
     }
 }
