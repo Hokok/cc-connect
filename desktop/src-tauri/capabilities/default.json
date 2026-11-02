@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Main engine window and config editor",
+  "windows": ["main", "editor"],
+  "permissions": ["core:default"]
+}

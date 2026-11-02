@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 24px;
+    font: 14px/1.6 -apple-system, "PingFang SC", sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  #path { color: #888; font-family: ui-monospace, monospace; font-size: 12px;
+          word-break: break-all; margin-bottom: 12px; }
+  #err { background: #fdecea; color: #b3261e; padding: 10px 14px; border-radius: 8px;
+         margin-bottom: 12px; white-space: pre-wrap; }
+  #editor {
+    width: 100%; box-sizing: border-box; height: 60vh;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 12px; border: 1px solid #444; border-radius: 8px; resize: vertical;
+    background: transparent; color: inherit;
+  }
+  .row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .agent-row { margin: 12px 0; display: flex; gap: 10px; align-items: center;
+               padding: 10px 12px; border: 1px solid #555; border-radius: 8px;
+               background: rgba(128,128,128,.06); }
+  .agent-row label { font-weight: 600; }
+  .agent-row select { padding: 4px 8px; border-radius: 6px; }
+  button { padding: 7px 18px; border-radius: 8px; border: 1px solid #666;
+           cursor: pointer; font-size: 14px; }
+  button.primary { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-left: 8px; font-size: 13px; }
+  .ok { color: #1a8918; } .bad { color: #b3261e; }
+</style>
+</head>
+<body>
+  <h1>config.toml 配置文件编辑</h1>
+  <div id="path"></div>
+  <div id="err" hidden></div>
+  <div class="agent-row">
+    <label>连接的 Agent CLI</label>
+    <select id="agent"></select>
+    <span id="cli-status"></span>
+    <button id="apply-agent">应用并重启</button>
+  </div>
+  <textarea id="editor" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="primary" id="save">保存</button>
+    <button id="restart">重启服务生效</button>
+    <span id="status" hidden></span>
+  </div>
+<script>
+const invoke = window.__TAURI__.core.invoke;
+const $ = id => document.getElementById(id);
+let dirty = false;
+
+// kind → label + default CLI; must match the Rust AGENTS table.
+const AGENTS = [
+  ["claudecode", "Claude Code", "claude"],
+  ["codex", "Codex CLI", "codex"],
+  ["gemini", "Gemini CLI", "gemini"],
+  ["cursor", "Cursor CLI", "agent"],
+  ["copilot", "Copilot CLI", "copilot"],
+  ["qoder", "Qoder", "qodercli"],
+  ["comate", "Comate", "comatecli"],
+  ["opencode", "OpenCode", "opencode"],
+  ["iflow", "iFlow CLI", "iflow"],
+  ["kimi", "Kimi CLI", "kimi"],
+  ["antigravity", "Antigravity", "agy"],
+  ["pi", "Pi", "pi"],
+  ["devin", "Devin CLI", "devin"],
+];
+
+function currentAgentKind(config) {
+  const m = config.match(/^\s*type\s*=\s*"([^"]+)"/m);
+  return m ? m[1] : null;
+}
+
+async function applyAgent() {
+  const kind = $('agent').value;
+  $('apply-agent').disabled = true;
+  setStatus('切换 agent 中…', '');
+  try {
+    await invoke('set_agent', { kind });
+    dirty = false;
+    setStatus('已切换并重启', 'ok');
+    await refreshCliStatus();
+  } catch (e) {
+    setStatus(String(e), 'bad');
+  }
+  $('apply-agent').disabled = false;
+}
+
+async function refreshCliStatus() {
+  const kind = $('agent').value;
+  const entry = AGENTS.find(([k]) => k === kind);
+  const st = $('cli-status');
+  st.textContent = '检查中…';
+  try {
+    const p = await invoke('check_cli', { cmd: entry[2] });
+    st.textContent = '✓ ' + p;
+    st.className = 'ok';
+  } catch (e) {
+    st.textContent = String(e);
+    st.className = 'bad';
+  }
+}
+
+function setStatus(text, kind) {
+  const s = $('status');
+  s.hidden = false;
+  s.textContent = text;
+  s.className = kind;
+}
+
+async function load() {
+  $('path').textContent = await invoke('config_path');
+  const err = await invoke('take_startup_error');
+  if (err) { $('err').hidden = false; $('err').textContent = '服务启动失败(可在下方修复配置后点击重启): ' + err; }
+  const config = await invoke('read_config');
+  $('editor').value = config;
+  dirty = false;
+  setStatus('', '');
+  // Agent selector
+  for (const [kind, label] of AGENTS) {
+    const o = document.createElement('option');
+    o.value = kind; o.textContent = label;
+    $('agent').appendChild(o);
+  }
+  const cur = currentAgentKind(config);
+  if (cur && AGENTS.some(([k]) => k === cur)) $('agent').value = cur;
+  $('agent').onchange = refreshCliStatus;
+  $('apply-agent').onclick = applyAgent;
+  await refreshCliStatus();
+}
+
+$('editor').addEventListener('input', () => { dirty = true; setStatus('未保存', 'bad'); });
+window.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); $('save').click(); }
+});
+
+$('save').onclick = async () => {
+  $('save').disabled = true;
+  try {
+    await invoke('write_config', { content: $('editor').value });
+    dirty = false;
+    setStatus('已保存,需重启服务生效', 'ok');
+  } catch (e) {
+    setStatus(String(e), 'bad');
+  }
+  $('save').disabled = false;
+};
+
+$('restart').onclick = async () => {
+  $('restart').disabled = true;
+  setStatus('重启中…', '');
+  try {
+    if (dirty) await invoke('write_config', { content: $('editor').value });
+    await invoke('restart_service');
+    $('err').hidden = true;
+    dirty = false;
+    setStatus('已重启', 'ok');
+  } catch (e) {
+    setStatus(String(e), 'bad');
+  }
+  $('restart').disabled = false;
+};
+
+load();
+</script>
+</body>
+</html>

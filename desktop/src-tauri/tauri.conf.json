@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CC Connect",
+  "version": "1.5.1",
+  "identifier": "cc.connect.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "externalBin": ["binaries/cc-connect"],
+    "icon": ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"]
+  }
+}
