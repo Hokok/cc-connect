@@ -1,15 +1,13 @@
 name: Desktop App
 
-# Build the Tauri desktop shell (CC Connect.app + dmg) on macOS.
-# - push to main / desktop-shell branches touching relevant code
-# - manual run (optionally on a tag ref → artifacts get attached to a release)
+# Build the Tauri desktop shell on macOS + Windows and publish installers
+# to a rolling "desktop-latest" release. Push triggers are limited to master;
+# any other branch can still be built manually via workflow_dispatch.
 on:
   workflow_dispatch:
   push:
     branches:
-      - main
       - master
-      - 'feat/desktop-shell*'
     paths:
       - 'desktop/**'
       - 'web/**'
@@ -31,8 +29,16 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macOS
+          - os: windows-latest
+            platform: Windows
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
     steps:
@@ -70,42 +76,82 @@ jobs:
         working-directory: web
         run: pnpm install --frozen-lockfile
 
-      # Builds the engine sidecar (with embedded web UI) and bundles
-      # CC Connect.app + dmg via `pnpm tauri build` (see Makefile `app` target).
-      - name: Build engine and bundle app
+      # ── macOS: Makefile builds the sidecar (embedded web UI) and bundles
+      # CC Connect.app + dmg via `pnpm tauri build`.
+      - name: Build and bundle (macOS)
+        if: runner.os == 'macOS'
         run: make app
 
-      - name: Package .app
+      - name: Package .app (macOS)
+        if: runner.os == 'macOS'
         run: |
           cd desktop/src-tauri/target/release/bundle/macos
           zip -ry "CC-Connect-macOS.zip" "CC Connect.app"
 
-      # Artifact names cannot contain '/', which branch names like
-      # feat/desktop-shell-comate do — sanitize the ref name.
-      - name: Compute artifact name
-        run: echo "ARTIFACT_NAME=CC-Connect-macOS-$(printf %s "${{ github.ref_name }}" | tr '/' '-')" >> "$GITHUB_ENV"
-
-      - name: Upload artifacts
+      - name: Upload artifacts (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: CC-Connect-macOS
           path: |
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/release/bundle/macos/CC-Connect-macOS.zip
           if-no-files-found: error
-          retention-days: 14
 
-      # Runs only for manual dispatches on a tag ref: attaches dmg + zip
-      # to the GitHub release for that tag.
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # ── Windows: build the sidecar explicitly (Makefile targets are
+      # Unix-shell only), then bundle the NSIS installer.
+      - name: Build web UI (Windows)
+        if: runner.os == 'Windows'
+        working-directory: web
+        shell: bash
+        run: pnpm build
+
+      - name: Build engine sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^VERSION *:= *//p' Makefile)
+          go build -tags 'goolm' -ldflags "-s -w -X main.version=${VERSION}" \
+            -o desktop/src-tauri/binaries/cc-connect-x86_64-pc-windows-msvc.exe ./cmd/cc-connect
+
+      - name: Bundle installer (Windows)
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: bash
+        run: |
+          pnpm install --silent
+          pnpm tauri build --bundles nsis
+
+      - name: Upload artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CC-Connect-Windows
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  # Collect every platform's installers into one rolling release so users
+  # always have a single "latest" download point.
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish rolling release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes || true
-          gh release upload "${{ github.ref_name }}" \
-            desktop/src-tauri/target/release/bundle/dmg/*.dmg \
-            desktop/src-tauri/target/release/bundle/macos/CC-Connect-macOS.zip \
-            --clobber
+          set -euo pipefail
+          ls -la dist/
+          # Recreate the release so stale assets from older versions never linger.
+          gh release delete desktop-latest --yes --cleanup-tag || true
+          gh release create desktop-latest dist/* \
+            --title "Desktop App (latest)" \
+            --notes "Automated build from master @ $GITHUB_SHA" \
+            --latest
