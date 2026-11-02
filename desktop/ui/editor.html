@@ -25,6 +25,11 @@
                background: rgba(128,128,128,.06); }
   .agent-row label { font-weight: 600; }
   .agent-row select { padding: 4px 8px; border-radius: 6px; }
+  details#help { margin-top: 14px; font-size: 13px; }
+  details#help summary { cursor: pointer; color: #0a84ff; }
+  details#help pre { background: rgba(128,128,128,.1); padding: 10px 12px;
+                      border-radius: 8px; overflow: auto; font-size: 12px; }
+  details#help li { margin: 4px 0; }
   button { padding: 7px 18px; border-radius: 8px; border: 1px solid #666;
            cursor: pointer; font-size: 14px; }
   button.primary { background: #0a84ff; border-color: #0a84ff; color: #fff; }
@@ -45,10 +50,23 @@
   </div>
   <textarea id="editor" spellcheck="false"></textarea>
   <div class="row">
+    <span>插入平台模板:</span>
+    <select id="tpl"></select>
+    <button id="insert-tpl">插入</button>
     <button class="primary" id="save">保存</button>
     <button id="restart">重启服务生效</button>
     <span id="status" hidden></span>
   </div>
+  <details id="help">
+    <summary>平台配置说明(appKey/app_id 填哪里)</summary>
+    <ul>
+      <li>每个平台 = 一段 <code>[[projects.platforms]]</code>,放到 <code>[projects.agent]</code> 之后、文件末尾均可</li>
+      <li>凭证(appKey / app_id / app_secret)填进对应段的 <code>[projects.platforms.options]</code></li>
+      <li>改完点「保存」→「重启服务生效»;报错去 see <code>engine.log</code>(同目录)</li>
+      <li>完整字段说明见仓库 <code>config.example.toml</code>:github.com/chenhg5/cc-connect</li>
+    </ul>
+    <pre id="help-detail"></pre>
+  </details>
 <script>
 const invoke = window.__TAURI__.core.invoke;
 const $ = id => document.getElementById(id);
@@ -75,6 +93,62 @@ function currentAgentKind(config) {
   const m = config.match(/^\s*type\s*=\s*"([^"]+)"/m);
   return m ? m[1] : null;
 }
+
+// 平台配置模板与说明(与仓库 config.example.toml 对齐;仅列常用必填项)。
+const PLAT_TPL = [
+  ["feishu", "飞书 / Lark", `# 飞书:https://open.feishu.cn 建应用 → 开启机器人能力
+# → 添加 im.message.receive_v1 事件,选 WebSocket 长连接模式
+[[projects.platforms]]
+type = "feishu"
+
+[projects.platforms.options]
+app_id = "填你的 app_id"
+app_secret = "填你的 app_secret"
+# allow_from = "*"   # 允许的用户 open_id(用 /whoami 获取),"*" = 所有
+# allow_chat = "*"   # 允许的群 chat_id(在群设置中查看)`],
+  ["dingtalk", "钉钉", `# 钉钉:开放平台创建应用(企业内部应用,机器人),
+# STREAM 模式无需公网地址
+[[projects.platforms]]
+type = "dingtalk_dingtalk"
+[projects.platforms.options]
+"clientId" = "填 appKey(clientId)"
+"clientSecret" = "填 appKey 对应的 clientSecret"`],
+  ["telegram", "Telegram", `# Telegram:向 @BotFather 发 /newbot 拿 Bot Token
+[[projects.platforms]]
+type = "telegram"
+
+[projects.platforms.options]
+token = "填 BotFather 给的 Bot Token"`],
+  ["slack", "Slack", `# Slack:api.slack.com/apps 建 App;Socket Mode 开启
+# 需要 bot token + app token
+[[projects.platforms]]
+type = "slack"
+
+[projects.platforms.options]
+bot_token = "xoxb-..."
+app_token = "xapp-..."`],
+  ["discord", "Discord", `# Discord:Developer Portal 建 Bot,拿 Bot Token
+[[projects.platforms]]
+type = "discord"
+
+[projects.platforms.options]
+token = "填 Discord Bot Token"`],
+  ["wecom", "企业微信", `# 企业微信:管理后台创建自建应用
+[[projects.platforms]]
+type = "wecom"
+
+[projects.platforms.options]
+corp_id = "填企业 corp_id"
+app_key = "填应用 appKey"
+app_secret = "填应用 appSecret"`],
+  ["qq", "个人QQ", `# QQ(NapCat 协议):需要设备号+密码或快手二维码登录,
+# 建议看 config.example.toml 的完整说明
+[[projects.platforms]]
+type = "qq"
+
+[projects.platforms.options]
+# 见 config.example.toml 的 [platforms.qq] 段完整示例`],
+];
 
 async function applyAgent() {
   const kind = $('agent').value;
