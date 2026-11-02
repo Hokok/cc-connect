@@ -198,10 +198,37 @@ fn sidecar_path() -> PathBuf {
     PathBuf::from(&name)
 }
 
+/// Run a script through the user's interactive login zsh and return the last
+/// non-empty stdout line. `-i` is required: version managers (nvm, pyenv,
+/// sdkman) hook their PATH into `.zshrc`, which a non-interactive `zsh -lc`
+/// never reads, so their CLIs stay invisible. `.zshrc` may print noise, so
+/// callers consume only the final line.
+fn zsh_login_last_line(script: &str) -> Option<String> {
+    let out = Command::new("/bin/zsh")
+        .arg("-ilc")
+        .arg(script)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
+}
+
 /// GUI apps get a minimal PATH that misses homebrew/nvm agent CLIs. Rebuild it
 /// from a zsh login shell (macOS user rc) before spawning the engine so the
 /// engine (and the agent CLIs it manages) inherit a usable PATH.
 fn fix_path_from_login_shell() {
+    if let Some(p) = zsh_login_last_line("printf %s \"$PATH\"").filter(|p| p.contains('/')) {
+        std::env::set_var("PATH", p);
+        return;
+    }
+    // Fallback for setups whose interactive zsh fails under the GUI env.
     if let Ok(out) = Command::new("/bin/zsh").arg("-lc").arg("printf %s \"$PATH\"").output() {
         if out.status.success() && !out.stdout.is_empty() {
             std::env::set_var("PATH", String::from_utf8_lossy(&out.stdout).to_string());
@@ -400,22 +427,16 @@ fn take_startup_error(err: State<StartupError>) -> Option<String> {
     err.0.lock().expect("startup error lock").take()
 }
 
-/// Resolve a CLI name via the user's zsh login env (GUI PATH is fixed globally).
+/// Resolve a CLI name via the user's interactive login env (sees nvm/pyenv
+/// bins that plain `zsh -lc` misses).
 #[tauri::command]
 fn check_cli(cmd: String) -> Result<String, String> {
     if cmd.is_empty() || !cmd.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
         return Err("非法 CLI 名称".to_string());
     }
-    let out = Command::new("/bin/zsh")
-        .arg("-lc")
-        .arg(format!("command -v -- {}", cmd))
-        .output()
-        .map_err(|e| format!("which failed: {e}"))?;
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if !out.status.success() || path.is_empty() {
-        return Err(format!("未找到 {} CLI,请先安装(pnpm/global/homebrew)", cmd));
-    }
-    Ok(path)
+    zsh_login_last_line(&format!("command -v -- {}", cmd))
+        .filter(|p| p.starts_with('/'))
+        .ok_or_else(|| format!("未找到 {} CLI,请先安装(pnpm/global/homebrew)", cmd))
 }
 
 /// Stop the engine, run its self-update (`cc-connect update` downloads and
