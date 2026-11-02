@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -3122,5 +3123,42 @@ func TestMgmt_ProjectWorkspaces_BindRejectsPathOutsideBaseDir(t *testing.T) {
 	}
 	if !strings.Contains(r.Error, "escapes base_dir") {
 		t.Fatalf("error = %q, want escapes base_dir", r.Error)
+	}
+}
+
+// Regression: static web assets used to be served without cache headers, so
+// WebView/browser caches pinned a stale app shell and kept showing the old UI
+// after an engine update (seen in the desktop shell on 127.0.0.1).
+func TestMgmt_StaticCacheHeaders(t *testing.T) {
+	orig := GetWebAssets()
+	t.Cleanup(func() { RegisterWebAssets(orig) })
+	RegisterWebAssets(fstest.MapFS{
+		"index.html":        &fstest.MapFile{Data: []byte("<html>app shell</html>")},
+		"assets/app-abc.js": &fstest.MapFile{Data: []byte("console.log(1)")},
+		"favicon.svg":       &fstest.MapFile{Data: []byte("<svg/>")},
+	})
+
+	m := NewManagementServer(0, "", nil)
+	h := m.withStaticFallback(http.NewServeMux())
+
+	// App shell (/ and SPA fallback routes) must be revalidated every time.
+	for _, path := range []string{"/", "/settings/platforms"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s: status %d, want 200", path, w.Code)
+		}
+		if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("GET %s: Cache-Control = %q, want no-cache", path, cc)
+		}
+	}
+
+	// Hashed Vite assets are immutable and safe to cache forever.
+	req := httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("GET /assets/app-abc.js: Cache-Control = %q, want immutable", cc)
 	}
 }

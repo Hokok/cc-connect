@@ -297,6 +297,7 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 		}
 		if f, err := assets.Open(urlPath); err == nil {
 			f.Close()
+			setStaticCacheHeaders(w, urlPath)
 			http.FileServer(http.FS(assets)).ServeHTTP(w, r)
 			return
 		}
@@ -306,9 +307,21 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 			apiMux.ServeHTTP(w, r)
 			return
 		}
+		setStaticCacheHeaders(w, "index.html")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(indexData)
 	})
+}
+
+// setStaticCacheHeaders marks HTML documents as no-cache so WebView/browser
+// caches never pin a stale app shell across releases, while hashed Vite
+// assets (assets/*) are immutable and safe to cache forever.
+func setStaticCacheHeaders(w http.ResponseWriter, urlPath string) {
+	if strings.HasPrefix(urlPath, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
 }
 
 // ── Auth & Middleware ──────────────────────────────────────────
