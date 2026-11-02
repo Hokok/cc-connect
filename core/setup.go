@@ -216,6 +216,7 @@ func (m *ManagementServer) handleSetupFeishuSave(w http.ResponseWriter, r *http.
 		mgmtError(w, http.StatusInternalServerError, "save: "+err.Error())
 		return
 	}
+	m.setConfigMtimeHeader(w)
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"message":          fmt.Sprintf("feishu platform configured for project %q", req.ProjectName),
 		"restart_required": true,
@@ -460,6 +461,7 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 		mgmtError(w, http.StatusInternalServerError, "save: "+err.Error())
 		return
 	}
+	m.setConfigMtimeHeader(w)
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"message":          fmt.Sprintf("weixin platform configured for project %q", req.ProjectName),
 		"restart_required": true,
@@ -503,6 +505,7 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		mgmtError(w, http.StatusInternalServerError, "save config: "+err.Error())
 		return
 	}
+	m.setConfigMtimeHeader(w)
 	mgmtJSON(w, http.StatusCreated, map[string]any{
 		"message":          fmt.Sprintf("platform %q added to project %q", req.Type, projectName),
 		"restart_required": true,

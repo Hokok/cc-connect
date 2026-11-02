@@ -257,7 +257,7 @@ func main() {
 		}
 		logWriter = w
 		logCloser = w
-		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
+		slog.SetDefault(slog.New(slog.NewTextHandler(core.AttachLogFanout(w), &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
 
 	rootOpts, err := parseRootCLIOptions(os.Args[1:])
@@ -1780,7 +1780,7 @@ func setupLogger(level string, w io.Writer) {
 	if w == nil {
 		w = os.Stdout
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
+	slog.SetDefault(slog.New(slog.NewTextHandler(core.AttachLogFanout(w), &slog.HandlerOptions{
 		Level: logLevel,
 	})))
 }

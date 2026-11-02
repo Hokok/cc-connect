@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -223,9 +224,11 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/reload", m.wrap(m.handleReload))
 	mux.HandleFunc(prefix+"/config", m.wrap(m.handleConfig))
 	mux.HandleFunc(prefix+"/settings", m.wrap(m.handleGlobalSettings))
+	mux.HandleFunc(prefix+"/logs/stream", m.wrap(m.handleLogStream))
 
 	// Agents & Platforms (registry)
 	mux.HandleFunc(prefix+"/agents", m.wrap(m.handleAgents))
+	mux.HandleFunc(prefix+"/doctor/agents", m.wrap(m.handleDoctorAgents))
 
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
@@ -518,9 +521,236 @@ func (m *ManagementServer) handleConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	m.setConfigMtimeHeader(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+// ── Config freshness (mtime) gating ──────────────────────────
+//
+// The web UI forms and the desktop shell's TOML editor both write
+// config.toml (see docs/adr/0002). Structured write endpoints accept the
+// mtime the client saw when it loaded its data (request header
+// X-Config-Loaded-Mtime) and reject the save with 409 if the file has
+// changed since, so an open form can never silently clobber edits made
+// through the file track. Successful writes echo the new mtime back in
+// X-Config-Mtime so sequential saves (e.g. the first-run wizard) chain.
+
+const (
+	HeaderConfigMtime       = "X-Config-Mtime"
+	HeaderConfigLoadedMtime = "X-Config-Loaded-Mtime"
+)
+
+func (m *ManagementServer) currentConfigMtime() string {
+	if m.configFilePath == "" {
+		return ""
+	}
+	info, err := os.Stat(m.configFilePath)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(info.ModTime().UnixNano(), 10)
+}
+
+func (m *ManagementServer) setConfigMtimeHeader(w http.ResponseWriter) {
+	if v := m.currentConfigMtime(); v != "" {
+		w.Header().Set(HeaderConfigMtime, v)
+	}
+}
+
+// gateConfigFreshness writes a 409 and returns false when the client's
+// loaded mtime is stale. Absent header or unreadable file passes through
+// (the save path reports real errors).
+func (m *ManagementServer) gateConfigFreshness(w http.ResponseWriter, r *http.Request) bool {
+	loaded := r.Header.Get(HeaderConfigLoadedMtime)
+	if loaded == "" {
+		return true
+	}
+	cur := m.currentConfigMtime()
+	if cur == "" || cur == loaded {
+		return true
+	}
+	mgmtError(w, http.StatusConflict, "config.toml was modified elsewhere after it was loaded; reload and retry")
+	return false
+}
+
+// ── Log stream (SSE) ─────────────────────────────────────────
+
+// handleLogStream streams engine log lines as Server-Sent Events.
+// Query params: level=debug|info|warn|error (minimum, default info),
+// tail=N (initial backlog, default 300, max 2000). Each event is
+// {"ts":RFC3339,"level":"INFO","msg":"…"} with one full slog text line
+// in msg. The management token is redacted from every line before it
+// leaves the process.
+func (m *ManagementServer) handleLogStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		mgmtError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	minLevel := ParseLogQueryLevel(r.URL.Query().Get("level"))
+	tail := 300
+	if v := r.URL.Query().Get("tail"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			tail = n
+		}
+	}
+	if tail > 2000 {
+		tail = 2000
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	writeEvent := func(line string) {
+		_, _ = fmt.Fprintf(w, "data: {\"ts\":%q,\"level\":%q,\"msg\":%q}\n\n",
+			time.Now().UTC().Format(time.RFC3339),
+			levelString(parseLogLineLevel(line)),
+			jsonEscapeLogLine(RedactToken(line, m.token)))
+	}
+
+	for _, line := range GlobalLogFanout().Tail(tail, minLevel) {
+		writeEvent(line)
+	}
+	flusher.Flush()
+
+	ch, unsub := GlobalLogFanout().Subscribe(minLevel)
+	defer unsub()
+
+	heartbeat := time.NewTicker(logSSEHeartbeat)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
+			writeEvent(line)
+			flusher.Flush()
+		}
+	}
+}
+
+func levelString(l slog.Level) string {
+	switch {
+	case l <= slog.LevelDebug:
+		return "DEBUG"
+	case l <= slog.LevelInfo:
+		return "INFO"
+	case l <= slog.LevelWarn:
+		return "WARN"
+	default:
+		return "ERROR"
+	}
+}
+
+// ── Doctor: agent CLI detection ──────────────────────────────
+
+// handleDoctorAgents probes every registered agent's CLI binary so the
+// first-run wizard can tell a non-technical user what is installed and
+// what still needs setup. It reports binary name, PATH presence and
+// `--version` output per agent.
+func (m *ManagementServer) handleDoctorAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+
+	names := ListRegisteredAgents()
+	results := make([]map[string]any, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			results[i] = m.probeAgentCLI(r.Context(), name)
+		}(i, name)
+	}
+	wg.Wait()
+
+	mgmtJSON(w, http.StatusOK, map[string]any{"agents": results})
+}
+
+// probeAgentCLI resolves an agent instance (a running engine's agent if
+// configured, otherwise a throwaway instance from the registry factory)
+// and checks whether its CLI binary is on PATH. Factories are third-party
+// code that may assume config-provided opts; a panic or error only marks
+// the probe as failed, never the whole request.
+func (m *ManagementServer) probeAgentCLI(ctx context.Context, name string) map[string]any {
+	res := map[string]any{"agent": name, "installed": false}
+
+	var agent Agent
+	m.mu.RLock()
+	for _, e := range m.engines {
+		if e.agent.Name() == name {
+			agent = e.agent
+			break
+		}
+	}
+	m.mu.RUnlock()
+
+	if agent == nil {
+		agent, res["error"] = createProbeAgent(name)
+		if agent == nil {
+			return res
+		}
+	}
+
+	bin, label := agentCLIInfo(agent)
+	res["display_name"] = label
+	res["binary"] = bin
+
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return res
+	}
+	res["installed"] = true
+	res["path"] = path
+
+	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(tctx, bin, "--version").Output(); err == nil {
+		ver := strings.TrimSpace(string(out))
+		if idx := strings.IndexByte(ver, '\n'); idx >= 0 {
+			ver = ver[:idx]
+		}
+		if len(ver) > 80 {
+			ver = ver[:80]
+		}
+		res["version"] = ver
+	}
+	return res
+}
+
+// createProbeAgent builds a throwaway agent instance for CLI detection.
+// Factories are third-party code that may require config-provided opts,
+// so panics and errors are contained: they return nil + a reason.
+func createProbeAgent(name string) (agent Agent, probeErr string) {
+	defer func() {
+		if r := recover(); r != nil {
+			agent = nil
+			probeErr = fmt.Sprintf("factory probe panicked: %v", r)
+		}
+	}()
+	a, err := CreateAgent(name, map[string]any{})
+	if err != nil {
+		return nil, fmt.Sprintf("create probe instance: %v", err)
+	}
+	return a, ""
 }
 
 func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.Request) {
@@ -537,6 +767,9 @@ func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.R
 			mgmtError(w, http.StatusServiceUnavailable, "global settings save not available")
 			return
 		}
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		var updates map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -546,6 +779,7 @@ func (m *ManagementServer) handleGlobalSettings(w http.ResponseWriter, r *http.R
 			mgmtError(w, http.StatusInternalServerError, "save: "+err.Error())
 			return
 		}
+		m.setConfigMtimeHeader(w)
 		if m.getGlobalSettings != nil {
 			mgmtJSON(w, http.StatusOK, m.getGlobalSettings())
 		} else {
@@ -743,6 +977,9 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 	}
 
 	if r.Method == http.MethodPatch {
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		var body struct {
 			Language             *string           `json:"language"`
 			AdminFrom            *string           `json:"admin_from"`
@@ -890,6 +1127,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 		if restartRequired {
 			resp["restart_required"] = true
 		}
+		m.setConfigMtimeHeader(w)
 		mgmtJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -899,10 +1137,14 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			mgmtError(w, http.StatusNotImplemented, "project removal not configured")
 			return
 		}
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		if err := m.removeProject(name); err != nil {
 			mgmtError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		m.setConfigMtimeHeader(w)
 		mgmtJSON(w, http.StatusOK, map[string]any{
 			"message":          fmt.Sprintf("project %q removed from config", name),
 			"restart_required": true,
@@ -1514,6 +1756,9 @@ func (m *ManagementServer) handleProjectProviderRefs(w http.ResponseWriter, r *h
 			mgmtError(w, http.StatusNotImplemented, "provider refs saving not available")
 			return
 		}
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		var body struct {
 			ProviderRefs []string `json:"provider_refs"`
 		}
@@ -1548,6 +1793,7 @@ func (m *ManagementServer) handleProjectProviderRefs(w http.ResponseWriter, r *h
 				}
 			}
 		}
+		m.setConfigMtimeHeader(w)
 		mgmtOK(w, "provider refs updated")
 
 	default:
@@ -1933,6 +2179,9 @@ func (m *ManagementServer) handleGlobalProviders(w http.ResponseWriter, r *http.
 			mgmtError(w, http.StatusNotImplemented, "not configured")
 			return
 		}
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		var body GlobalProviderInfo
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1950,6 +2199,7 @@ func (m *ManagementServer) handleGlobalProviders(w http.ResponseWriter, r *http.
 			}
 			return
 		}
+		m.setConfigMtimeHeader(w)
 		mgmtJSON(w, http.StatusOK, map[string]any{"name": body.Name, "message": "provider added"})
 
 	default:
@@ -1986,6 +2236,9 @@ func (m *ManagementServer) handleGlobalProviderRoutes(w http.ResponseWriter, r *
 			mgmtError(w, http.StatusNotImplemented, "not configured")
 			return
 		}
+		if !m.gateConfigFreshness(w, r) {
+			return
+		}
 		var body GlobalProviderInfo
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1999,11 +2252,15 @@ func (m *ManagementServer) handleGlobalProviderRoutes(w http.ResponseWriter, r *
 			}
 			return
 		}
+		m.setConfigMtimeHeader(w)
 		mgmtOK(w, "provider updated")
 
 	case http.MethodDelete:
 		if m.removeGlobalProvider == nil {
 			mgmtError(w, http.StatusNotImplemented, "not configured")
+			return
+		}
+		if !m.gateConfigFreshness(w, r) {
 			return
 		}
 		if err := m.removeGlobalProvider(name); err != nil {
@@ -2015,6 +2272,7 @@ func (m *ManagementServer) handleGlobalProviderRoutes(w http.ResponseWriter, r *
 			return
 		}
 		m.purgeProviderFromEngines(name)
+		m.setConfigMtimeHeader(w)
 		mgmtOK(w, "provider removed")
 
 	default:
