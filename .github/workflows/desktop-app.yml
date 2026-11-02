@@ -146,12 +146,21 @@ jobs:
       - name: Publish rolling release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No checkout in this job: point gh at the repo explicitly.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # upload-artifact nests files under bundle/{dmg,macos}; flatten.
+          find dist -mindepth 2 -type f -exec mv -f {} dist/ \;
+          find dist -mindepth 1 -type d -empty -delete
           ls -la dist/
           # Recreate the release so stale assets from older versions never linger.
           gh release delete desktop-latest --yes --cleanup-tag || true
-          gh release create desktop-latest dist/* \
+          gh release create desktop-latest \
             --title "Desktop App (latest)" \
             --notes "Automated build from master @ $GITHUB_SHA" \
             --latest
+          # Upload one by one: installer filenames contain spaces.
+          for f in dist/*; do
+            gh release upload desktop-latest "$f"
+          done
