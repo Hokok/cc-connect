@@ -1,0 +1,105 @@
+name: Desktop App
+
+# Build the Tauri desktop shell (CC Connect.app + dmg) on macOS.
+# - push to main / desktop-shell branches touching relevant code
+# - manual run (optionally on a tag ref → artifacts get attached to a release)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'feat/desktop-shell*'
+    paths:
+      - 'desktop/**'
+      - 'web/**'
+      - 'config/**'
+      - 'core/**'
+      - 'cmd/**'
+      - 'agent/**'
+      - 'platform/**'
+      - 'Makefile'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/desktop-app.yml'
+
+concurrency:
+  group: desktop-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            web/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # Builds the engine sidecar (with embedded web UI) and bundles
+      # CC Connect.app + dmg via `pnpm tauri build` (see Makefile `app` target).
+      - name: Build engine and bundle app
+        run: make app
+
+      - name: Package .app
+        run: |
+          cd desktop/src-tauri/target/release/bundle/macos
+          zip -ry "CC-Connect-macOS.zip" "CC Connect.app"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CC-Connect-macOS-${{ github.ref_name }}
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/macos/CC-Connect-macOS.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      # Runs only for manual dispatches on a tag ref: attaches dmg + zip
+      # to the GitHub release for that tag.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes || true
+          gh release upload "${{ github.ref_name }}" \
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg \
+            desktop/src-tauri/target/release/bundle/macos/CC-Connect-macOS.zip \
+            --clobber
