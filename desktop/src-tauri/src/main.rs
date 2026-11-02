@@ -9,6 +9,7 @@ use std::{
 use serde::Deserialize;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
+    tray::TrayIconBuilder,
     webview::Url,
     AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
@@ -280,6 +281,7 @@ fn restart_engine(app: &AppHandle, config_path: &std::path::Path, log_path: &std
 fn ensure_main_window(app: &AppHandle, config_path: &std::path::Path) -> Result<(), String> {
     let url = engine_login_url(config_path);
     if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
         let _ = win.navigate(url);
         let _ = win.set_focus();
         return Ok(());
@@ -413,6 +415,30 @@ fn check_cli(cmd: String) -> Result<String, String> {
     Ok(path)
 }
 
+/// Stop the engine, run its self-update (`cc-connect update` downloads and
+/// replaces the sidecar binary), then start the engine again. Mirrors the
+/// update split in ADR-0003: the shell only orchestrates stop → update → start.
+/// Note: rewriting the sidecar binary inside a signed .app breaks its code
+/// signature; if that ever matters, ship whole-app updates instead.
+#[tauri::command]
+fn engine_update(app: AppHandle, paths: State<ConfigPaths>) -> Result<String, String> {
+    let engine: State<Engine> = app.state();
+    kill_engine(&engine);
+    let out = Command::new(sidecar_path())
+        .arg("update")
+        .output()
+        .map_err(|e| format!("无法运行更新命令: {e}"))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    // Restart the service either way so it never stays down after a failed update.
+    restart_engine(&app, &paths.config, &paths.log)?;
+    if out.status.success() {
+        Ok(text.trim().to_string())
+    } else {
+        Err(text.trim().to_string())
+    }
+}
+
 fn main() {
     fix_path_from_login_shell();
     register_reaper();
@@ -452,6 +478,20 @@ fn main() {
                 _ => {}
             });
 
+            // Tray: keep the app resident in the menu bar. Reuses the app-menu
+            // item ids above so one on_menu_event handler serves both menus.
+            let tray_show = MenuItemBuilder::with_id("main-window", "打开主界面 / Open").build(app)?;
+            let tray_config = MenuItemBuilder::with_id("config-editor", "配置编辑 / Config").build(app)?;
+            let tray_quit = MenuItemBuilder::with_id("quit", "退出 / Quit").build(app)?;
+            let tray_menu = MenuBuilder::new(app)
+                .items(&[&tray_show, &tray_config, &tray_quit])
+                .build()?;
+            TrayIconBuilder::new()
+                .icon(tauri::include_image!("icons/icon.png"))
+                .menu(&tray_menu)
+                .tooltip("CC Connect")
+                .build(app)?;
+
             // Start the engine; when its web UI is serving, open the main window
             // at the login URL. On failure open the editor pre-filled with an error.
             match restart_engine(&handle, &config_path, &log_path) {
@@ -477,9 +517,14 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
-                kill_engine(&window.app_handle().state::<Engine>());
-                window.app_handle().exit(0);
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Hide the main window to tray instead of quitting — the engine
+                // keeps serving. The editor window closes normally; the shell
+                // stays resident either way (see ExitRequested below).
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -489,15 +534,31 @@ fn main() {
             restart_service,
             take_startup_error,
             check_cli,
-            set_agent
+            set_agent,
+            engine_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Menu quit / window close app-exit paths settle here; stop the engine
-            // so it never outlives the shell as an orphan on the web port.
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                kill_engine(&app_handle.state::<Engine>());
+            match event {
+                // Explicit quit (menu 退出 → app.exit) carries Some(code): stop the
+                // engine so it never outlives the shell as an orphan on the web
+                // port. code == None means the last window was closed (e.g. the
+                // editor while the main window hides in the tray) — stay resident.
+                tauri::RunEvent::ExitRequested { code, api, .. } => {
+                    if code.is_none() {
+                        api.prevent_exit();
+                    } else {
+                        kill_engine(&app_handle.state::<Engine>());
+                    }
+                }
+                // macOS: dock icon click while resident in the tray.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    let paths = app_handle.state::<ConfigPaths>();
+                    let _ = ensure_main_window(app_handle, &paths.config);
+                }
+                _ => {}
             }
         });
 }

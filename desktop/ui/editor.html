@@ -49,6 +49,10 @@
     <button id="restart">重启服务生效</button>
     <span id="status" hidden></span>
   </div>
+  <div class="row">
+    <button id="update">检查引擎更新</button>
+    <span id="update-status" style="font-size: 13px; white-space: pre-wrap;"></span>
+  </div>
 <script>
 const invoke = window.__TAURI__.core.invoke;
 const $ = id => document.getElementById(id);
@@ -164,6 +168,22 @@ $('restart').onclick = async () => {
     setStatus(String(e), 'bad');
   }
   $('restart').disabled = false;
+};
+
+$('update').onclick = async () => {
+  $('update').disabled = true;
+  const st = $('update-status');
+  st.textContent = '更新中(停止服务 → 下载 → 重启),请稍候…';
+  st.className = '';
+  try {
+    const out = await invoke('engine_update');
+    st.textContent = out || '已是最新版本';
+    st.className = 'ok';
+  } catch (e) {
+    st.textContent = '更新失败: ' + String(e);
+    st.className = 'bad';
+  }
+  $('update').disabled = false;
 };
 
 load();
