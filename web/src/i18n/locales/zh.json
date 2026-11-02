@@ -8,7 +8,8 @@
     "cron": "定时任务",
     "bridge": "桥接",
     "skills": "技能",
-    "system": "系统"
+    "system": "系统",
+    "logs": "日志"
   },
   "dashboard": {
     "title": "概览",
@@ -183,6 +184,18 @@
     "level": "日志级别",
     "limit": "行数限制",
     "rawConfig": "原始配置"
+  },
+  "logs": {
+    "title": "日志",
+    "live": "实时",
+    "disconnected": "已断开",
+    "levelAll": "全部级别",
+    "lines": "{{count}} 行",
+    "pause": "暂停",
+    "resume": "继续",
+    "clear": "清屏",
+    "empty": "等待日志输出…",
+    "emptyPaused": "已暂停"
   },
   "login": {
     "title": "CC-Connect 管理后台",

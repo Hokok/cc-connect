@@ -8,7 +8,8 @@
     "cron": "예약 작업",
     "bridge": "브리지",
     "skills": "스킬",
-    "system": "시스템"
+    "system": "시스템",
+    "logs": "로그"
   },
   "dashboard": {
     "title": "대시보드",
@@ -183,6 +184,18 @@
     "level": "로그 레벨",
     "limit": "줄 제한",
     "rawConfig": "원본 설정"
+  },
+  "logs": {
+    "title": "로그",
+    "live": "연결됨",
+    "disconnected": "연결 끊김",
+    "levelAll": "전체 레벨",
+    "lines": "{{count}}줄",
+    "pause": "일시정지",
+    "resume": "재개",
+    "clear": "지우기",
+    "empty": "로그 출력을 기다리는 중…",
+    "emptyPaused": "일시정지됨"
   },
   "login": {
     "title": "CC-Connect 관리 콘솔",

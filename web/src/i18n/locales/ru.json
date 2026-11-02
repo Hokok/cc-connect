@@ -8,7 +8,8 @@
     "cron": "Расписание",
     "bridge": "Мост",
     "skills": "Навыки",
-    "system": "Система"
+    "system": "Система",
+    "logs": "Журнал"
   },
   "dashboard": {
     "title": "Панель",
@@ -183,6 +184,18 @@
     "level": "Уровень логов",
     "limit": "Лимит строк",
     "rawConfig": "Сырой конфиг"
+  },
+  "logs": {
+    "title": "Журнал",
+    "live": "Онлайн",
+    "disconnected": "Отключено",
+    "levelAll": "Все уровни",
+    "lines": "{{count}} строк",
+    "pause": "Пауза",
+    "resume": "Продолжить",
+    "clear": "Очистить",
+    "empty": "Ожидание вывода журнала…",
+    "emptyPaused": "Пауза"
   },
   "login": {
     "title": "CC-Connect Admin",

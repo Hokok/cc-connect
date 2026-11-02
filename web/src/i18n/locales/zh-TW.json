@@ -8,7 +8,8 @@
     "cron": "排程工作",
     "bridge": "橋接",
     "skills": "技能",
-    "system": "系統"
+    "system": "系統",
+    "logs": "日誌"
   },
   "dashboard": {
     "title": "總覽",
@@ -183,6 +184,18 @@
     "level": "記錄層級",
     "limit": "筆數上限",
     "rawConfig": "原始設定"
+  },
+  "logs": {
+    "title": "日誌",
+    "live": "即時",
+    "disconnected": "已斷線",
+    "levelAll": "全部層級",
+    "lines": "{{count}} 行",
+    "pause": "暫停",
+    "resume": "繼續",
+    "clear": "清屏",
+    "empty": "等待日誌輸出…",
+    "emptyPaused": "已暫停"
   },
   "login": {
     "title": "CC-Connect 管理後台",

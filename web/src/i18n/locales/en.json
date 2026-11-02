@@ -8,7 +8,8 @@
     "cron": "Cron",
     "bridge": "Bridge",
     "skills": "Skills",
-    "system": "System"
+    "system": "System",
+    "logs": "Logs"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -183,6 +184,18 @@
     "level": "Log level",
     "limit": "Line limit",
     "rawConfig": "Raw Config"
+  },
+  "logs": {
+    "title": "Logs",
+    "live": "Live",
+    "disconnected": "Disconnected",
+    "levelAll": "All levels",
+    "lines": "{{count}} lines",
+    "pause": "Pause",
+    "resume": "Resume",
+    "clear": "Clear",
+    "empty": "Waiting for log output…",
+    "emptyPaused": "Paused"
   },
   "login": {
     "title": "CC-Connect Admin",

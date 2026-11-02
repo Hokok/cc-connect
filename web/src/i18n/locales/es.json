@@ -8,7 +8,8 @@
     "cron": "Tareas programadas",
     "bridge": "Puente",
     "skills": "Habilidades",
-    "system": "Sistema"
+    "system": "Sistema",
+    "logs": "Registros"
   },
   "dashboard": {
     "title": "Panel",
@@ -183,6 +184,18 @@
     "level": "Nivel de registro",
     "limit": "Límite de líneas",
     "rawConfig": "Config. sin procesar"
+  },
+  "logs": {
+    "title": "Registros",
+    "live": "En vivo",
+    "disconnected": "Desconectado",
+    "levelAll": "Todos los niveles",
+    "lines": "{{count}} líneas",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "clear": "Limpiar",
+    "empty": "Esperando salida de registros…",
+    "emptyPaused": "En pausa"
   },
   "login": {
     "title": "CC-Connect Admin",

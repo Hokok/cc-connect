@@ -8,7 +8,8 @@
     "cron": "スケジュールジョブ",
     "bridge": "ブリッジ",
     "skills": "スキル",
-    "system": "システム"
+    "system": "システム",
+    "logs": "ログ"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -183,6 +184,18 @@
     "level": "ログレベル",
     "limit": "行数の上限",
     "rawConfig": "生の設定"
+  },
+  "logs": {
+    "title": "ログ",
+    "live": "接続中",
+    "disconnected": "切断",
+    "levelAll": "すべてのレベル",
+    "lines": "{{count}} 行",
+    "pause": "一時停止",
+    "resume": "再開",
+    "clear": "クリア",
+    "empty": "ログ出力を待っています…",
+    "emptyPaused": "一時停止中"
   },
   "login": {
     "title": "CC-Connect 管理コンソール",

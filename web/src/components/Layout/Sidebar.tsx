@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Plug,
   Puzzle,
+  ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -22,6 +23,7 @@ const navItems = [
   { key: 'chat', path: '/chat', icon: MessageSquare },
   { key: 'cron', path: '/cron', icon: Clock },
   { key: 'system', path: '/system', icon: Settings },
+  { key: 'logs', path: '/system/logs', icon: ScrollText },
 ];
 
 export default function Sidebar() {
