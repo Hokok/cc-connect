@@ -75,7 +75,7 @@ endif
 _BUILD_TAGS := $(strip $(_EXCLUDE_TAGS) goolm)
 _TAGS_FLAG  := $(if $(_BUILD_TAGS),-tags '$(_BUILD_TAGS)',)
 
-.PHONY: build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web
+.PHONY: build run clean test test-fast test-full test-smoke test-e2e test-release test-release-local test-performance pre-test lint release release-all web app app-dev
 
 web:
 	@if [ ! -d web/node_modules ]; then cd web && npm install; fi
@@ -150,6 +150,23 @@ test-release-local:
 # Legacy: runs unit tests only
 test:
 	go test -v ./...
+
+# Build the desktop shell (Tauri) app for the current platform.
+# Requires: rust (cargo) + pnpm. Produces desktop/src-tauri/target/…/bundle/….
+app: build
+	$(eval SIDE_TRIPLE := $(shell rustc -vV | sed -n 's/^host: //p'))
+	@mkdir -p desktop/src-tauri/binaries
+	cp $(APP) desktop/src-tauri/binaries/cc-connect-$(SIDE_TRIPLE)
+	chmod +x desktop/src-tauri/binaries/cc-connect-$(SIDE_TRIPLE)
+	cd desktop && pnpm install --silent && pnpm tauri build
+
+# Run the desktop shell in dev mode (hot Rust rebuilds; engine binary from repo root).
+app-dev: build
+	$(eval SIDE_TRIPLE := $(shell rustc -vV | sed -n 's/^host: //p'))
+	@mkdir -p desktop/src-tauri/binaries
+	cp $(APP) desktop/src-tauri/binaries/cc-connect-$(SIDE_TRIPLE)
+	chmod +x desktop/src-tauri/binaries/cc-connect-$(SIDE_TRIPLE)
+	cd desktop && pnpm install --silent && pnpm tauri dev
 
 lint:
 	golangci-lint run ./...
