@@ -76,7 +76,9 @@
     "workspaceChannelName": "頻道名稱（可選）",
     "workspacePath": "工作區路徑",
     "workspaceSuggestions": "base_dir 中未綁定的目錄：",
-    "workspaceBind": "綁定"
+    "workspaceBind": "綁定",
+    "agentCmd": "CLI 命令",
+    "agentCmdHint": "Agent 執行的二進位檔，例如 claude。留空則使用 Agent 預設值。自訂路徑會原樣保留。"
   },
   "sessions": {
     "title": "工作階段",

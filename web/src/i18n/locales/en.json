@@ -76,7 +76,9 @@
     "workspaceChannelName": "Channel name (optional)",
     "workspacePath": "Workspace path",
     "workspaceSuggestions": "Unbound directories in base_dir:",
-    "workspaceBind": "Bind"
+    "workspaceBind": "Bind",
+    "agentCmd": "CLI command",
+    "agentCmdHint": "Binary the agent runs, e.g. claude. Leave empty to use the agent default. Custom paths are kept as-is."
   },
   "sessions": {
     "title": "Sessions",

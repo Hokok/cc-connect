@@ -76,7 +76,9 @@
     "workspaceChannelName": "チャンネル名（任意）",
     "workspacePath": "ワークスペースのパス",
     "workspaceSuggestions": "base_dir 内の未紐付けディレクトリ:",
-    "workspaceBind": "紐付け"
+    "workspaceBind": "紐付け",
+    "agentCmd": "CLI コマンド",
+    "agentCmdHint": "エージェントが実行するバイナリ（例: claude）。空欄でエージェントのデフォルトを使用します。カスタムパスはそのまま保持されます。"
   },
   "sessions": {
     "title": "セッション",

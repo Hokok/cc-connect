@@ -76,7 +76,9 @@
     "workspaceChannelName": "频道名称（可选）",
     "workspacePath": "工作区路径",
     "workspaceSuggestions": "base_dir 中未绑定的目录：",
-    "workspaceBind": "绑定"
+    "workspaceBind": "绑定",
+    "agentCmd": "CLI 命令",
+    "agentCmdHint": "Agent 运行的二进制文件，例如 claude。留空则使用 Agent 默认值。自定义路径会原样保留。"
   },
   "sessions": {
     "title": "会话",

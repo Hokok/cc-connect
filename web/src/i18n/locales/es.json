@@ -76,7 +76,9 @@
     "workspaceChannelName": "Nombre de canal (opcional)",
     "workspacePath": "Ruta del espacio de trabajo",
     "workspaceSuggestions": "Directorios sin vincular en base_dir:",
-    "workspaceBind": "Vincular"
+    "workspaceBind": "Vincular",
+    "agentCmd": "Comando CLI",
+    "agentCmdHint": "Binario que ejecuta el agente, p. ej. claude. Déjelo vacío para usar el predeterminado del agente. Las rutas personalizadas se conservan."
   },
   "sessions": {
     "title": "Sesiones",

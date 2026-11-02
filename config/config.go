@@ -3438,6 +3438,7 @@ type ProjectSettingsUpdate struct {
 	WorkDir              *string
 	Mode                 *string
 	AgentType            *string
+	AgentCmd             *string
 	ShowContextIndicator *bool
 	ShowWorkdirIndicator *bool
 	ReplyFooter          *bool
@@ -3449,6 +3450,12 @@ type ProjectSettingsUpdate struct {
 	WorkspaceMode    *string
 	WorkspaceBaseDir *string
 }
+
+// shellStubCmd is the placeholder agent cmd written by the desktop shell's
+// first-run default config ("/usr/bin/true" merely lets the service boot).
+// It must never survive an agent type switch — the new agent's factory
+// already falls back to its own default CLI when cmd is unset.
+const shellStubCmd = "/usr/bin/true"
 
 // SaveProjectSettings persists project-level settings and the global language to config.toml.
 func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error {
@@ -3512,6 +3519,26 @@ func SaveProjectSettings(projectName string, update ProjectSettingsUpdate) error
 						delete(opts, "provider")
 					}
 				}
+				// The shell's first-run stub cmd ("/usr/bin/true") is only
+				// there to let the service boot; carrying it into a new agent
+				// type spawns a no-op binary. Drop it so the new agent's
+				// factory falls back to its own default CLI.
+				if cmd, ok := opts["cmd"].(string); ok && strings.TrimSpace(cmd) == shellStubCmd {
+					slog.Info("removing shell stub cmd on agent type change",
+						"project", projectName, "new_agent", newType)
+					delete(opts, "cmd")
+				}
+			}
+		}
+		if update.AgentCmd != nil {
+			if proj.Agent.Options == nil {
+				proj.Agent.Options = map[string]any{}
+			}
+			cmd := strings.TrimSpace(*update.AgentCmd)
+			if cmd == "" {
+				delete(proj.Agent.Options, "cmd")
+			} else {
+				proj.Agent.Options["cmd"] = cmd
 			}
 		}
 		if update.AdminFrom != nil {
@@ -3625,6 +3652,9 @@ func GetProjectConfigDetails(projectName string) map[string]any {
 			}
 			if mode, ok := p.Agent.Options["mode"].(string); ok && strings.TrimSpace(mode) != "" {
 				result["mode"] = mode
+			}
+			if cmd, ok := p.Agent.Options["cmd"].(string); ok && strings.TrimSpace(cmd) != "" {
+				result["agent_cmd"] = strings.TrimSpace(cmd)
 			}
 		}
 		if p.ShowContextIndicator != nil {

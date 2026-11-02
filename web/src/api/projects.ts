@@ -18,6 +18,7 @@ export interface ProjectDetail {
   agent_type: string;
   work_dir?: string;
   agent_mode?: string;
+  agent_cmd?: string;
   show_context_indicator?: boolean;
   show_workdir_indicator?: boolean;
   reply_footer?: boolean;
@@ -49,6 +50,7 @@ export interface ProjectSettingsUpdate {
   work_dir?: string;
   mode?: string;
   agent_type?: string;
+  agent_cmd?: string;
   show_context_indicator?: boolean;
   show_workdir_indicator?: boolean;
   reply_footer?: boolean;

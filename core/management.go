@@ -27,6 +27,7 @@ type ProjectSettingsUpdate struct {
 	WorkDir              *string
 	Mode                 *string
 	AgentType            *string
+	AgentCmd             *string
 	ShowContextIndicator *bool
 	ShowWorkdirIndicator *bool
 	ReplyFooter          *bool
@@ -1000,6 +1001,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			WorkDir              *string           `json:"work_dir"`
 			Mode                 *string           `json:"mode"`
 			AgentType            *string           `json:"agent_type"`
+			AgentCmd             *string           `json:"agent_cmd"`
 			ShowContextIndicator *bool             `json:"show_context_indicator"`
 			ShowWorkdirIndicator *bool             `json:"show_workdir_indicator"`
 			ReplyFooter          *bool             `json:"reply_footer"`
@@ -1123,6 +1125,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 				WorkDir:              body.WorkDir,
 				Mode:                 body.Mode,
 				AgentType:            body.AgentType,
+				AgentCmd:             body.AgentCmd,
 				ShowContextIndicator: body.ShowContextIndicator,
 				ShowWorkdirIndicator: body.ShowWorkdirIndicator,
 				ReplyFooter:          body.ReplyFooter,

@@ -76,7 +76,9 @@
     "workspaceChannelName": "Имя канала (необязательно)",
     "workspacePath": "Путь рабочей области",
     "workspaceSuggestions": "Непривязанные директории в base_dir:",
-    "workspaceBind": "Привязать"
+    "workspaceBind": "Привязать",
+    "agentCmd": "CLI-команда",
+    "agentCmdHint": "Бинарник, запускаемый агентом, напр. claude. Оставьте пустым, чтобы использовать значение по умолчанию. Пользовательские пути сохраняются."
   },
   "sessions": {
     "title": "Сессии",

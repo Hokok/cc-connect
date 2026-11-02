@@ -2921,6 +2921,64 @@ func TestSaveProjectSettings_WorkspaceModeAndBaseDir(t *testing.T) {
 	}
 }
 
+// Regression: the desktop shell's first-run stub cmd ("/usr/bin/true") used
+// to survive an agent type switch, so the new agent spawned a no-op binary
+// and every turn failed with "exited without a completion event".
+func TestSaveProjectSettings_AgentTypeSwitchDropsShellStubCmd(t *testing.T) {
+	configPath := writeConfigFixture(t, feishuConfigFixture)
+	patchConfigPath(t, configPath)
+
+	stub := shellStubCmd
+	if err := SaveProjectSettings("alpha", ProjectSettingsUpdate{AgentCmd: &stub}); err != nil {
+		t.Fatalf("SaveProjectSettings (stub cmd): %v", err)
+	}
+	cfg := readConfigFixture(t, configPath)
+	if got := stringMapValue(cfg.Projects[0].Agent.Options, "cmd"); got != shellStubCmd {
+		t.Fatalf("cmd = %q, want stub %q", got, shellStubCmd)
+	}
+
+	newType := "claudecode"
+	if err := SaveProjectSettings("alpha", ProjectSettingsUpdate{AgentType: &newType}); err != nil {
+		t.Fatalf("SaveProjectSettings (type switch): %v", err)
+	}
+	cfg = readConfigFixture(t, configPath)
+	if cfg.Projects[0].Agent.Type != newType {
+		t.Fatalf("type = %q, want %q", cfg.Projects[0].Agent.Type, newType)
+	}
+	if _, ok := cfg.Projects[0].Agent.Options["cmd"]; ok {
+		t.Fatalf("cmd = %q, want removed after agent type switch", stringMapValue(cfg.Projects[0].Agent.Options, "cmd"))
+	}
+}
+
+func TestSaveProjectSettings_AgentCmdSetAndClear(t *testing.T) {
+	configPath := writeConfigFixture(t, feishuConfigFixture)
+	patchConfigPath(t, configPath)
+
+	cmd := "comatecli"
+	if err := SaveProjectSettings("alpha", ProjectSettingsUpdate{AgentCmd: &cmd}); err != nil {
+		t.Fatalf("SaveProjectSettings (set cmd): %v", err)
+	}
+	cfg := readConfigFixture(t, configPath)
+	if got := stringMapValue(cfg.Projects[0].Agent.Options, "cmd"); got != "comatecli" {
+		t.Fatalf("cmd = %q, want comatecli", got)
+	}
+	if details := GetProjectConfigDetails("alpha"); details["agent_cmd"] != "comatecli" {
+		t.Fatalf("details agent_cmd = %v, want comatecli", details["agent_cmd"])
+	}
+
+	empty := "  "
+	if err := SaveProjectSettings("alpha", ProjectSettingsUpdate{AgentCmd: &empty}); err != nil {
+		t.Fatalf("SaveProjectSettings (clear cmd): %v", err)
+	}
+	cfg = readConfigFixture(t, configPath)
+	if _, ok := cfg.Projects[0].Agent.Options["cmd"]; ok {
+		t.Fatal("cmd still present, want removed when patch is whitespace-only")
+	}
+	if details := GetProjectConfigDetails("alpha"); details["agent_cmd"] != nil {
+		t.Fatalf("details agent_cmd = %v, want absent", details["agent_cmd"])
+	}
+}
+
 func TestSaveProjectSettings_WorkspaceModeRequiresBaseDir(t *testing.T) {
 	configPath := writeConfigFixture(t, feishuConfigFixture)
 	patchConfigPath(t, configPath)

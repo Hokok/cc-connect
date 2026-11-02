@@ -1179,6 +1179,7 @@ func main() {
 				WorkDir:              u.WorkDir,
 				Mode:                 u.Mode,
 				AgentType:            u.AgentType,
+				AgentCmd:             u.AgentCmd,
 				ShowContextIndicator: u.ShowContextIndicator,
 				ShowWorkdirIndicator: u.ShowWorkdirIndicator,
 				ReplyFooter:          u.ReplyFooter,

@@ -59,6 +59,40 @@ const MODE_OPTIONS_BY_AGENT: Record<string, { value: string; label: string }[]> 
   codex: CODEX_MODE_OPTIONS,
 };
 
+// Default CLI binary per agent type (authoritative fallback lives in each
+// agent package's New() via ParseCmdOpts). Used by the settings UI to swap a
+// stale cmd when the agent type changes — e.g. the desktop shell's first-run
+// stub "/usr/bin/true" or the previous agent's CLI.
+const DEFAULT_AGENT_CMD: Record<string, string> = {
+  claudecode: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  cursor: 'agent',
+  copilot: 'copilot',
+  qoder: 'qodercli',
+  comate: 'comatecli',
+  opencode: 'opencode',
+  iflow: 'iflow',
+  kimi: 'kimi',
+  antigravity: 'agy',
+  pi: 'pi',
+  devin: 'devin',
+};
+
+const SHELL_STUB_CMD = '/usr/bin/true';
+
+// resolveAgentCmd returns the cmd the new agent type should run: the user's
+// explicit value when it still makes sense, otherwise the new type's default.
+// A cmd that is empty, the shell stub, or another agent's default CLI is
+// stale after a type switch and gets replaced.
+function resolveAgentCmd(currentCmd: string, newType: string): string {
+  const c = currentCmd.trim();
+  if (c === '' || c === SHELL_STUB_CMD) return DEFAULT_AGENT_CMD[newType] || '';
+  if (!Object.values(DEFAULT_AGENT_CMD).includes(c)) return c; // custom path → keep
+  const owner = Object.entries(DEFAULT_AGENT_CMD).find(([, v]) => v === c);
+  return owner && owner[0] !== newType ? (DEFAULT_AGENT_CMD[newType] || '') : c;
+}
+
 const isQRPlatform = (type: string) => type === 'feishu' || type === 'lark' || type === 'weixin';
 
 type Tab = 'overview' | 'providers' | 'heartbeat' | 'workspaces' | 'settings';
@@ -79,6 +113,7 @@ export default function ProjectDetail() {
   const [disabledCmds, setDisabledCmds] = useState('');
   const [workDir, setWorkDir] = useState('');
   const [agentMode, setAgentMode] = useState('');
+  const [agentCmd, setAgentCmd] = useState('');
   const [showCtxIndicator, setShowCtxIndicator] = useState(true);
   const [showWorkdirIndicator, setShowWorkdirIndicator] = useState(true);
   const [replyFooter, setReplyFooter] = useState(true);
@@ -185,6 +220,7 @@ export default function ProjectDetail() {
         setWorkDir(proj.value.work_dir || '');
         setAgentMode(proj.value.agent_mode || 'default');
         setSelectedAgentType(proj.value.agent_type || '');
+        setAgentCmd(proj.value.agent_cmd || '');
         setShowCtxIndicator(proj.value.show_context_indicator !== false);
         setShowWorkdirIndicator(proj.value.show_workdir_indicator !== false);
         setReplyFooter(proj.value.reply_footer !== false);
@@ -250,6 +286,7 @@ export default function ProjectDetail() {
     setSaving(true);
     try {
       const agentTypeChanged = project && selectedAgentType !== project.agent_type;
+      const cmdChanged = agentCmd.trim() !== (project?.agent_cmd || '');
       const res = await updateProject(name, {
         language,
         admin_from: adminFrom,
@@ -257,6 +294,7 @@ export default function ProjectDetail() {
         work_dir: workDir,
         mode: agentMode,
         ...(agentTypeChanged ? { agent_type: selectedAgentType } : {}),
+        ...(cmdChanged || agentTypeChanged ? { agent_cmd: agentCmd.trim() } : {}),
         show_context_indicator: showCtxIndicator,
         show_workdir_indicator: showWorkdirIndicator,
         reply_footer: replyFooter,
@@ -719,7 +757,13 @@ export default function ProjectDetail() {
               </label>
               <select
                 value={selectedAgentType}
-                onChange={(e) => setSelectedAgentType(e.target.value)}
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  setSelectedAgentType(newType);
+                  // Keep the CLI command usable across type switches: a stub
+                  // or the previous agent's default binary is stale here.
+                  setAgentCmd(prev => resolveAgentCmd(prev, newType));
+                }}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
               >
                 {agentTypes.map(a => <option key={a} value={a}>{a}</option>)}
@@ -731,6 +775,13 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-amber-500 mt-1">{t('projects.agentTypeChangeHint', 'Changing agent type requires restart. Incompatible providers will be removed.')}</p>
               )}
             </div>
+            <Input
+              label={t('projects.agentCmd', 'CLI command')}
+              value={agentCmd}
+              onChange={(e) => setAgentCmd(e.target.value)}
+              placeholder={DEFAULT_AGENT_CMD[selectedAgentType || project.agent_type] || 'claude'}
+            />
+            <p className="text-[11px] text-gray-400 -mt-2">{t('projects.agentCmdHint', 'Binary the agent runs, e.g. claude. Leave empty to use the agent default. Custom paths are kept as-is.')}</p>
             <Input label={t('projects.workDir', 'Working directory')} value={workDir} onChange={(e) => setWorkDir(e.target.value)} placeholder="/path/to/project" />
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">

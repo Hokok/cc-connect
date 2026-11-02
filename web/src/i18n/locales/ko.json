@@ -76,7 +76,9 @@
     "workspaceChannelName": "채널 이름 (선택 사항)",
     "workspacePath": "워크스페이스 경로",
     "workspaceSuggestions": "base_dir 내 바인딩되지 않은 디렉터리:",
-    "workspaceBind": "바인딩"
+    "workspaceBind": "바인딩",
+    "agentCmd": "CLI 명령",
+    "agentCmdHint": "에이전트가 실행하는 바이너리(예: claude). 비워 두면 에이전트 기본값을 사용합니다. 사용자 지정 경로는 그대로 유지됩니다."
   },
   "sessions": {
     "title": "세션",
