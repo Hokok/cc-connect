@@ -151,7 +151,10 @@ fn read_management(config_path: &std::path::Path) -> (u16, Option<String>) {
         .and_then(|m| m.try_into().ok());
     match cfg {
         Some(c) => (
-            c.port.unwrap_or(DEFAULT_WEB_PORT),
+            // port = 0 (e.g. saved by the web settings UI) means "unset" to the
+            // engine, which then falls back to the default port; the shell must
+            // do the same or it points the webview at an invalid port.
+            c.port.filter(|p| *p != 0).unwrap_or(DEFAULT_WEB_PORT),
             c.token.filter(|t| !t.is_empty()),
         ),
         None => (DEFAULT_WEB_PORT, None),
@@ -587,6 +590,19 @@ mod tests {
         let (port, token) = read_management(&p);
         assert_eq!(port, 9999);
         assert_eq!(token.as_deref(), Some("abc-XYZ"));
+        std::fs::remove_file(&p).ok();
+    }
+
+    // Regression: port = 0 saved by the web settings UI means "unset" to the
+    // engine (falls back to the default port); the shell used to take it
+    // literally and point the webview at port 0, rendering a blank window.
+    #[test]
+    fn test_read_management_zero_port_falls_back_to_default() {
+        let mut p = std::env::temp_dir();
+        p.push("desktop-shell-mgmt-zero-port-test.toml");
+        std::fs::write(&p, "[management]\nenabled = true\nport = 0\n").unwrap();
+        let (port, _) = read_management(&p);
+        assert_eq!(port, DEFAULT_WEB_PORT);
         std::fs::remove_file(&p).ok();
     }
 
